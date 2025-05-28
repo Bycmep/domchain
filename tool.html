@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<title>Tool</title>
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10pt;
+}
+
+/**** Layers ****/
+div.screen {
+    padding: 0.2em;
+}
+div.overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/**** Control Panel ****/
+td {
+    vertical-align: top;
+}
+td.panel {
+    padding: 0.6em;
+}
+
+/**** Buttons ****/
+button {
+    padding: 0.1em 0.5em 0 0.5em;
+    white-space: nowrap;
+    margin: 0.3em;
+}
+button.tiny {
+    font-size: 0.6em;
+}
+
+/**** Text Box ****/
+div.text_box {
+    padding: 0.2em 0 0 0.5em;
+    display: inline-block;
+    width: 48em;
+    height: 12em;
+    resize: both;
+    overflow: auto;
+}
+div.text_box, div.text_box table td, div.text_box table td a {
+    font-family: "Courier New", Courier, monospace;
+}
+div.text_box, div.text_box table td {
+    font-size: 1.2em;
+    white-space: nowrap;
+}
+div.text_box table td a {
+    font-size: 1em;
+    white-space: pre;
+    cursor: pointer;
+}
+div.text_box table td a.fade {
+    color: lightgrey;
+}
+div.viewer {
+    width: 80em;
+    height: 24em;
+}
+div.log {
+    width: 48em;
+    height: 12em;
+}
+
+table.viewer td {
+    padding: 0 0.5em;
+}
+table.viewer td.lines {
+    border-right: solid black 1px;
+}
+div.tooltip {
+    position: absolute;
+    min-width: 100px;
+    background-color: lightgoldenrodyellow;
+    font-size: 0.9em;
+    padding: 0.4em 1em;
+    border: 0.5px solid black;
+    text-align: left;
+}
+
+
+div.text_box span {
+    font-family: "Courier New", Courier, monospace;
+    white-space: nowrap;
+    font-size: 1em;
+}
+div.grey_black {
+    color: black; background-color: whitesmoke;
+    span.error { color: rgb(240, 0, 0); }
+    &::selection { background: black; color: whitesmoke; }
+}
+div.black_white {
+    color: white; background-color: rgb(0, 32, 32);
+    span.error { color: rgb(255, 160, 160); }
+    &::selection { background: white; color: rgb(0, 32, 32); }
+}
+div.black_green {
+    color: rgb(64, 255, 0); background-color: rgb(10, 40, 0);
+    span.error { background-color: rgb(32, 128, 0); font-weight: bold; }
+    &::selection { background: rgb(64, 255, 0); color: rgb(10, 40, 0); }
+}
+</style>
+</head>
+<script>
+
+const Main = {
+    ini: () => {
+        console.print = (...args) => { queueMicrotask(console.log.bind(console, ...args)); }
+
+        Main.body = new DOMchainX();
+        Main.body.insert("button", { onclick: Text.process1 }).text("Open file 1").append("br");
+        Main.body.insert("button", { onclick: Text.process2 }).text("Open file 2").append("br");
+    }
+};
+
+const Text = {
+    process1: () => {
+        readFile("readAsText", ".txt", console.print).then((text) => {
+            const strings = [];
+            for (const s of text.split("\n")) {
+                const trimmed = s.trim();
+                if (trimmed) strings.push(trimmed);
+            }
+            const accounts = [];
+            let line = 0;
+            for (const s of strings) {
+                if (s.startsWith('PAGE  1 ')) accounts.push(parseInt(strings[line - 1]));
+                line ++;
+            }
+            console.print(accounts);
+            Text.accounts = accounts;
+        });
+    },
+
+    process2: () => {
+        if (!Text.accounts) { console.error("Load the first file first!"); return; }
+        readFile("readAsText", ".csv", console.print).then((text) => {
+            const accounts = [];
+            for (const s of text.split("\n")) {
+                const n = parseInt(s.split(',')[0]);
+                if (n) accounts.push(n);
+            }
+            console.print(accounts);
+            console.print("Looking for matches...");
+            let found = false;
+            for (const a of Text.accounts) {
+                if (accounts.includes(a)) { found = true; console.print(a); }
+            }
+            if (!found) console.print("No matches.")
+        });
+    }
+}
+
+function readTextFile(extensions, onselect) {
+    return new Promise((resolve, reject) => {
+        const input = document.createElement("input");
+        input.type = 'file'; input.accept = extensions;
+        input.click();
+        input.onchange = function() {
+            if (onselect) onselect(this.files[0].name);
+            const reader = new FileReader();
+            reader.onload = () => { if (resolve) resolve(reader.result); }
+            reader.onerror = (event) => { if (reject) reject(event.target.error); }
+            reader.readAsText(this.files[0]);
+            this.remove();
+        }
+    });
+}
+
+function readFile(method, extensions, onselect) {
+    return new Promise((resolve, reject) => {
+        const input = document.createElement("input");
+        input.type = 'file'; input.accept = extensions;
+        input.click();
+        input.onchange = function() {
+            if (onselect) onselect(this.files[0].name);
+            const reader = new FileReader();
+            if (resolve) reader.onload = () => { resolve(reader.result); }
+            if (reject) reader.onerror = (event) => { reject(event.target.error); }
+            reader[method](this.files[0]);
+            this.remove();
+        }
+    });
+}
+
+class DOMchainX {
+    static #ids = [];
+    static body = new DOMchainX();
+
+    constructor(element, parent, svg) {
+        if (element) {
+            this.element = element;
+            this.parent = parent;
+            if (svg) this.svg = true;
+        } else {
+            this.element = document.body;
+            this.parent = null;
+        }
+    }
+
+    static #create(type, parent) {
+        const tag = type.split('.');
+        let tag0 = tag[0].toLowerCase();
+        const svg = (parent.svg || tag0 == 'svg');
+        const e = (svg)? 
+            document.createElementNS("http://www.w3.org/2000/svg", tag0) :
+            document.createElement(tag0);
+        for (let i = 1; i < tag.length; i++) e.classList.add(tag[i]);
+        return new DOMchainX(e, parent, svg);
+    }
+
+    insert(type, attributes) {
+        const created = DOMchainX.#create(type, this);
+        if (!this.child) this.child = [ created ];
+        else this.child.push(created);
+        this.element.appendChild(created.element);
+        return created.set(attributes);
+    }
+
+    append(type, attributes) {
+        const created = DOMchainX.#create(type, this.parent);
+        const index = this.parent.child.indexOf(this);
+        if (index + 1 == this.parent.child.length) this.parent.element.appendChild(created.element);
+        else this.parent.element.insertBefore(created.element, this.parent.child[index + 1].element);
+        this.parent.child.splice(index + 1, 0, created);
+        return created.set(attributes);
+    }
+
+    prepend(type, attributes) {
+        const created = DOMchainX.#create(type, this.parent);
+        const index = this.parent.child.indexOf(this);
+        this.parent.child.splice(index, 0, created);
+        this.parent.element.insertBefore(created.element, this.element);
+        return created.set(attributes);
+    }
+
+    set(attributes) {
+        for (const attribute in attributes) {
+            const value = attributes[attribute];
+            if (attribute == 'class') {
+                const classes = value.split('.');
+                for (const c1ass of classes) this.element.classList.add(c1ass);
+            } else if (attribute == 'style')
+                for (const style_attribute in value) this.element.style[style_attribute] = value[style_attribute];
+            else this.element[attribute] = value;
+        }
+        return this;
+    }
+
+    up(levels) {
+        let object = this;
+        if (!levels) levels = 1;
+        for (let i = 0; i < levels; i++) object = object.parent;
+        return object;
+    }
+
+    class(classname) {
+        this.element.classList.add(classname);
+        return this;
+    }
+
+    declass(classname) {
+        if (!classname) this.element.removeAttribute('class');
+        else this.element.classList.remove(classname);
+        return this;
+    }
+
+    id(id) {
+        DOMchainX.#ids[id] = this;
+        return this;
+    }
+
+    static get(id) {
+        return DOMchainX.#ids[id];
+    }
+
+    html(value) {
+        this.element.innerHTML = value;
+        return this;
+    }
+
+    text(value) {
+        this.element.innerText = value;
+        return this;
+    }
+
+    clear() {
+        this.element.innerHTML = "";
+        this.child = undefined;
+        return this;
+    }
+
+    remove() {
+        this.element.remove();
+        if (this.parent) {
+            const index = this.parent.child.indexOf(this);
+            if(index != -1) {
+                this.parent.child.splice(index, 1);
+            }
+        }
+    }
+}
+
+
+</script>
+<body onload="Main.ini()"/>
+</html>
